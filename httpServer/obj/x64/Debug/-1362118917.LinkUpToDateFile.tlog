@@ -1,0 +1,1 @@
+g++ -o "/home/wanfeng/projects/httpServer/bin/x64/Debug/httpServer.out" -Wl,--no-undefined -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack /home/wanfeng/projects/httpServer/obj/x64/Debug/main.o /home/wanfeng/projects/httpServer/obj/x64/Debug/server.o
