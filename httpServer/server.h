@@ -8,38 +8,39 @@
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <strings.h>
 #include <dirent.h>
-// ³õÊ¼»¯¼àÌıÌ×½Ó×Ö
+// åˆå§‹åŒ–ç›‘å¬å¥—æ¥å­—
 int initListenFd(unsigned short port);
 
-// Æô¶¯ epoll Ä£ĞÍ
+// å¯åŠ¨ epoll æ¨¡å‹
 int epollRun(unsigned short port);
 
-// ½¨Á¢ĞÂÁ¬½Ó
+// å»ºç«‹æ–°è¿æ¥
 int acceptConn(int lfd, int epfd);
 
-// ½ÓÊÜÊı¾İ
+// æ¥å—æ•°æ®
 int recvHttpRequest(int cfd, int epfd);
-// ½âÎöÇëÇóĞĞ
+// è§£æè¯·æ±‚è¡Œ
 int parseRequestLine(const char* reqpath, int cfd, int epfd);
-// ·¢ËÍÏìÓ¦ÏûÏ¢µÄÇ°Èı²¿·Ö
+// å‘é€å“åº”æ¶ˆæ¯çš„å‰ä¸‰éƒ¨åˆ†
 int sendHeadMsg(int cfd, int status, const char* descr,
 				const char* type, int length);
-// ½«ÎÄ¼şÄÚÈİ·¢ËÍ
+// å°†æ–‡ä»¶å†…å®¹å‘é€
 int sendFile(int cfd, const char* file);
 
-// ¶Ï¿ªÁ¬½Ó
+// æ–­å¼€è¿æ¥
 int disConnect(int cfd, int epfd);
 
-// »ñÈ¡ÎÄ¼şµÄ¸ñÊ½
+// è·å–æ–‡ä»¶çš„æ ¼å¼
 const char* getFileType(const char* filename);
 
-// ·¢ËÍÄ¿Â¼µÄĞÅÏ¢
+// å‘é€ç›®å½•çš„ä¿¡æ¯
 int sendDirMsg(int cfd, const char* dir);
 
 
-// ×ªÂë²Ù×÷
+// è½¬ç æ“ä½œ
 int hexit(char c);
 void Decode(char* to, char* from);
