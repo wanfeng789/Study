@@ -3,9 +3,6 @@
 
 int main(int argc, char*argv[])
 {
-	//argc = 3;
-	//argv[1] = "8765";
-	//argv[2] = "/home/wanfeng/HttpServer";
 	/*
 		服务器启动格式  ./Server.out port file
 	*/

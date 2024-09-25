@@ -102,7 +102,7 @@ int Server::Serverstart()
 	while (flag)
 	{
 		// 循环检测epoll树上文件描述符的变
-		int num = epoll_wait(this->epfd, (struct epoll_event*)&evs, evsLen, -1);
+		int num = epoll_wait(this->epfd, (struct epoll_event*)&evs, evsLen, 0);
 		for (int i = 0; i < num; ++i)
 		{
 			int curfd = evs[i].data.fd;
@@ -197,8 +197,8 @@ int Server::httpRSMsg()
 int Server::recvMsg()
 {
 	// 循环接受数据
-	char buf[4096];	// 接受总数据
-	char tmp[1024];	// 临时数据
+	char buf[10240];	// 接受总数据
+	char tmp[5120];	// 临时数据
 	int len, total = 0;
 	while ((len = recv(cfd, tmp, sizeof(tmp), 0)) > 0)
 	{
@@ -371,7 +371,7 @@ int Server::sendTrueMsg(int num)
 		std::cout << "打开文件失败" << std::endl;
 		return -1;
 	}
-	char buf[4096];
+	char buf[10240];
 	while (1)
 	{
 		memset(buf, 0, sizeof(buf));
@@ -419,7 +419,7 @@ int Server::sendTrueMsg(double n)
 		</html>
 	
 	*/
-	char buf[4096];
+	char buf[5120];
 	memset(buf, 0, sizeof(buf));
 	// 先发送
 	sprintf(buf, "<html><head><title>%s</title></head><body><table>", this->file);
