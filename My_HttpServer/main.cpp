@@ -3,7 +3,9 @@
 
 int main(int argc, char*argv[])
 {
-	
+	//argc = 3;
+	//argv[1] = "8765";
+	//argv[2] = "/home/wanfeng/HttpServer";
 	/*
 		服务器启动格式  ./Server.out port file
 	*/
@@ -16,9 +18,8 @@ int main(int argc, char*argv[])
 	chdir(argv[2]);
 	// 获取指定的端口号 
 	
-	Server* s = new Server(atoi(argv[2]));
+	Server* s = new Server(atoi(argv[1]));
 	s->Serverstart();
-
 
 	delete s;
 	return 0;

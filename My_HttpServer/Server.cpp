@@ -1,8 +1,7 @@
 #include "Server.h"
 
-
 //16进制数转化为10进制, return 0不会出现
-static int hexit(char c)
+int hexit(char c)
 {
 	if (c >= '0' && c <= '9')
 		return c - '0';
@@ -13,18 +12,14 @@ static int hexit(char c)
 
 	return 0;
 }
-static void Decode(char* to, char* from)
+void Decode(char* to, char* from)
 {
-	while (*from != '\0')
+	while(*from != '\0') 
 	{
-		//依次判断from中 %20 三个字符
-		if (from[0] == '%' && isxdigit(from[1]) && isxdigit(from[2]))
-		{
-			//字符串E8变成了真正的16进制的E8
-			*to = hexit(from[1]) * 16 + hexit(from[2]);
-			//移过已经处理的两个字符(%21指针指向1),
-			// 表达式3的++from还会再向后移一个字符
-			from += 2;
+		if (from[0] == '%' && isxdigit(from[1]) && isxdigit(from[2])) { //依次判断from中 %20 三个字符
+
+			*to = hexit(from[1]) * 16 + hexit(from[2]);//字符串E8变成了真正的16进制的E8
+			from += 2;                      //移过已经处理的两个字符(%21指针指向1),表达式3的++from还会再向后移一个字符
 		}
 		else
 		{
@@ -78,6 +73,16 @@ const char* getFileType(char* filename)
 Server::Server(unsigned short port)
 {
 	this->port = port;
+	
+	this->epfd = 0;
+	this->lfd = 0;
+	this->cfd = 0;
+
+	this->status = 0;
+	this->descStatus = NULL;
+	this->fileType = NULL;
+	this->file = NULL;
+	this->fileSize = 0;
 }
 
 int Server::Serverstart()
@@ -88,45 +93,42 @@ int Server::Serverstart()
 	// 检测连接的状态
 	epfd = epoll_create(1);
 	// 将监听的文件描述符添加到epoll树上
-	setEpollAdd(lfd);
-
+	setEpollAdd(this->lfd);
 	// 循环检测
 	struct epoll_event evs[1024];
-	int evsLen = sizeof(evs) / sizeof(evs[0]);
+	int evsLen = sizeof(evs) / sizeof(struct epoll_event);
 	// 循环结束的标志
 	bool flag = 1;
 	while (flag)
 	{
-		flag = 0;
-		// 循环检测epoll树上文件描述符的变化
-		// 采用多线程处理加快速度
-		// 主线程处理客户端连接, 子线程进行处理请求和发送
-		int num = epoll_wait(this->epfd, evs, evsLen, -1);
-		pthread_t pfd;
+		// 循环检测epoll树上文件描述符的变
+		int num = epoll_wait(this->epfd, (struct epoll_event*)&evs, evsLen, -1);
 		for (int i = 0; i < num; ++i)
 		{
-			flag = 1;
 			int curfd = evs[i].data.fd;
-			
 			if (curfd == lfd)
 			{
 				// 此时有新的客户端连接
 				std::cout << "客户端连接" << std::endl;
-				pthread_create(&pfd, NULL, acceptClient, this);
-				// 进行线程分离自动回收线程
-				pthread_detach(pfd);
+				int ret = acceptClient();
+				if (ret == -1)
+				{
+					flag = 0;
+					break;
+				}
 			}
 			else
 			{
 				// 处理请求进行传输数据
 				std::cout << "处理请求" << std::endl;
+				this->cfd = curfd;
+				std::cout << "连接的文件描述符" << curfd << std::endl;
 				httpRSMsg();
 			}
 		}
 
 	}
-	// 关闭监听的文件描述符
-	disConnect(lfd);
+	close(this->lfd);
 	return 0;
 }
 
@@ -151,7 +153,7 @@ int Server::setListen()
 		std::cout << "绑定失败" << std::endl;
 		return -1;
 	}
-	ret = listen(lfd, 1024);
+	ret = listen(lfd, 128);
 	if (ret == -1)
 	{
 		std::cout << "绑定失败" << std::endl;
@@ -166,28 +168,25 @@ int Server::setEpollAdd(int fd)
 	ev.data.fd = fd;
 	// 设置为边沿模式
 	ev.events = EPOLLIN | EPOLLET;
-	epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+	epoll_ctl(this->epfd, EPOLL_CTL_ADD, fd, &ev);
 	return 0;
 }
 
-void* acceptClient(void* arg)
+int Server::acceptClient()
 {
-	Server* s = (Server*)arg;
 	// 通讯的文件描述符
-	int cfd = accept(s->lfd, NULL, NULL);
+	int cfd = accept(this->lfd, NULL, NULL);
 	// 将通讯的文件描述设置为非阻塞模式
 	int flag = fcntl(cfd, F_GETFL);
 	flag |= O_NONBLOCK;
-	fcntl(cfd, flag, F_SETFL);
-	// 添加到epoll树上
-	s->m_list.insert({ pthread_self(), cfd});
+	fcntl(cfd, F_SETFL, flag);
+	setEpollAdd(cfd);
 	return 0;
 }
 
 
 int Server::httpRSMsg()
 {
-	int cfd = pthread_self();
 	// 先接受客户端的请求的数据
 	recvMsg();
 	// 向客户端发送响应数据
@@ -197,43 +196,40 @@ int Server::httpRSMsg()
 
 int Server::recvMsg()
 {
-	int cfd = m_list[pthread_self()];
-	// 循环接受数据, 数据可能过大需要进行判断处理
-	char buf[4096];		// 接受的总数据
-	char tmp[1024];		// 临时数据
-	memset(buf, 0, sizeof(buf));
-	int len = 0;
-	int ptr = 0;
+	// 循环接受数据
+	char buf[4096];	// 接受总数据
+	char tmp[1024];	// 临时数据
+	int len, total = 0;
 	while ((len = recv(cfd, tmp, sizeof(tmp), 0)) > 0)
 	{
-		if ((len + ptr) < sizeof(buf))
+		if ((total + len) < sizeof(buf))
 		{
-			memcpy(buf + ptr, tmp, len);
+			// buf 区数据未读满
+			memcpy(buf + total, tmp, len);
 		}
-		ptr += len;
-
+		total += len;
 	}
-	// 判断收到的数据情况
 	if (len == -1 && errno == EAGAIN)
 	{
-		// 取出请求行
-		char* p = strstr(buf, "\r\n");
-		int index = buf - p;
-		// 进行数据的截断
-		buf[index] = '\0';
-
-		// 解析请求行的数据
+		// 将请求行的数据读出来
+		// 在http请求中  以 \r\n 结束一行
+		char* final = strstr(buf, "\r\n");
+		int len = final - buf;
+		// 进行截断操作
+		buf[len] = '\0';
+		// 解析请求行
 		parseRequestLine(buf);
 	}
 	else if (len == 0)
 	{
-		// 客户端断开了连接
-		std::cout << "客户端断开连接" << std::endl;
-		disConnect(cfd);
+		// 客户端断开了连接，需要服务器断开连接, 在epoll树上删除
+		std::cout << "客户端断开了连接的文件描述符" << this->cfd <<std::endl;
+		disConnect();
 	}
 	else
 	{
-		std::cout << "接受数据错误" << std::endl;
+		// 发生接受数据错误
+		perror("recv");
 		return -1;
 	}
 	return 0;
@@ -258,31 +254,30 @@ int Server::sendMsg()
 		this->file = "404.html";
 		this->descStatus = "Not Found";
 		this->status = 404;
-		this->fileType = (char*)getFileType("./html");
+		this->fileType = getFileType(".html");
 		this->fileSize = -1;
-
 		sendHeadMsg();
 		sendTrueMsg(1);
+		return -1;
 	}
 	// 这里请求的目录
 	if (S_ISDIR(st.st_mode))
 	{
 		// 发送头
-		this->file = file;
 		this->descStatus = "OK";
 		this->status = 200;
-		this->fileType = (char*)getFileType(".html");
+		this->fileType = getFileType(".html");
 		this->fileSize = -1;
+		sendHeadMsg();
 		// 发送数据
 		sendTrueMsg(1.0);
 	}
 	else
 	{
 		// 则是文件
-		this->file = file;
 		this->descStatus = "OK";
 		this->status = 200;
-		this->fileType = (char*)getFileType(file);
+		this->fileType = getFileType(this->file);
 		this->fileSize = st.st_size;
 		// 发送头
 		sendHeadMsg();
@@ -296,32 +291,33 @@ Server::~Server()
 {
 }
 
-int Server::disConnect(int cfd)
+int Server::disConnect()
 {
 	// 将cfd从epoll树上摘除
-	epoll_ctl(epfd, EPOLL_CTL_DEL, cfd, NULL);
-
+	int ret = epoll_ctl(epfd, EPOLL_CTL_DEL, this->cfd, NULL);
+	if (ret == -1)
+	{
+		std::cout << "删除失败" << std::endl;
+		return -1;
+	}
 	// 关闭通讯的文件描述符
-	close(cfd);
-
+	close(this->cfd);
+	return 0;
 }
 int Server::parseRequestLine(const char* buf)
 {
-	int cfd = m_list[pthread_self()];
 	/*
 		请求的方法  请求的资源目录 请求的数据
 		
 	*/
 	// 请求的方法
-	char method[10];
+	char method[6];
 	// 请求的资源根目录
-	char reqsrc[20];
+	char reqsrc[1024];
 	memset(method, 0, sizeof(method));
 	memset(reqsrc, 0, sizeof(reqsrc));
-	
 	// 使用 sscanf 取出对应的方法
-	sscanf(buf, "[^ ] [^ ]", method, reqsrc);
-
+	sscanf(buf, "%[^ ] %[^ ]", method, reqsrc);
 	// 判断请求的方法是不是  get
 	if (strcasecmp(method, "get") == 0)
 	{
@@ -330,29 +326,27 @@ int Server::parseRequestLine(const char* buf)
 	else
 	{
 		std::cout << "请求方法错误" << std::endl;
+		std::cout << "method" << method << std::endl;
 		return -1;
 	}
 	// 查询请求的资源目录
-	char* file = NULL;
 	// 解决中文问题
 	Decode(reqsrc, reqsrc);
-	if (strcmp(reqsrc, "\n") == 0)
+	if (strcmp(reqsrc, "/") == 0)
 	{
 		// 请求的是资源根目录
-		file = "./";
+		this->file = "./";
 	}
 	else
 	{
 		// 这里则是访问的根目录下面的资源
-		file = reqsrc + 1;
+		this->file = reqsrc + 1;
 	}
-	strcpy(this->file, file);
 	return 0;
 }
 int Server::sendHeadMsg()
 {
-	int cfd = m_list[pthread_self()];
-	char buf[1024];
+	char buf[4096];
 	memset(buf, 0, sizeof(buf));
 	/*
 		只需要发这三种就可以, 因为TCP是流式传输
@@ -363,22 +357,21 @@ int Server::sendHeadMsg()
 	// 状态行
 	sprintf(buf, "http/1.1 %d %s\r\n", this->status, this->descStatus);
 	// 响应头
-	sprintf(buf + strlen(buf), "Content-Type:%d Content-Length:%d\r\n", this->fileType, this->fileSize);
+	sprintf(buf + strlen(buf), "Content-Type:%s\r\nContent-Length:%d\r\n", this->fileType, this->fileSize);
 	// 空行
 	sprintf(buf + strlen(buf), "\r\n");
-	send(cfd, buf, sizeof(buf), 0);
-
+	send(cfd, buf, strlen(buf), 0);
+	return 0;
 }
 int Server::sendTrueMsg(int num)
 {
-	int cfd = m_list[pthread_self()];
-	int fd = open(this->file, O_RDONLY);
+	int fd = open(this->file, O_RDONLY | O_NONBLOCK);
 	if (fd == -1)
 	{
 		std::cout << "打开文件失败" << std::endl;
 		return -1;
 	}
-	char buf[1024];
+	char buf[4096];
 	while (1)
 	{
 		memset(buf, 0, sizeof(buf));
@@ -389,7 +382,7 @@ int Server::sendTrueMsg(int num)
 			// 读多少就发多少
 			send(cfd, buf, len, 0);
 			// 浏览器接受速率慢, 延迟
-			usleep(100);
+			usleep(10);
 		}
 		else if (len == 0)
 		{
@@ -402,12 +395,66 @@ int Server::sendTrueMsg(int num)
 			return -1;
 		}
 	}
-
 	close(fd);
+	return 0;
 }
-int Server::sendTrueMsg(double num)
+int Server::sendTrueMsg(double n)
 {
-	int cfd = m_list[pthread_self()];
-	
+	// 发送目录中的内容,通过遍历
+	/*
+		<html>
+			<head>
+				<title>
 
+				</title>
+			</head>
+			<body>
+				<table>
+					<tr>
+						<td>
+						</td>
+					</tr>
+				</table>
+			</body>
+		</html>
+	
+	*/
+	char buf[4096];
+	memset(buf, 0, sizeof(buf));
+	// 先发送
+	sprintf(buf, "<html><head><title>%s</title></head><body><table>", this->file);
+	send(this->cfd, buf, strlen(buf), 0);
+	struct dirent** namelist;
+	// 遍历目录
+	int num = scandir(this->file, &namelist, NULL, alphasort);
+	for (int i = 0; i < num; ++i)
+	{
+		// 获得每个文件的大小
+		// 通过绝对路径获得文件的大小
+		char realPath[1024];
+		memset(buf, 0, sizeof(buf));
+		memset(realPath, 0, sizeof(realPath));
+		char* name = namelist[i]->d_name;
+		sprintf(realPath, "%s/%s", this->file, name);
+		struct stat st;
+		stat(realPath, &st);
+		if (S_ISDIR(st.st_mode))
+		{
+			// 还有目录进行递归, 采用超链接方式
+			sprintf(buf, "<tr><td><a href=\"%s/\">%s</a></td><td>%ld</td></tr>", name, name, (long long)st.st_size);
+		}
+		else
+		{
+			// 还有文件采用超链接方式
+			sprintf(buf, "<tr><td><a href=\"%s\">%s</a></td><td>%ld</td></tr>", name, name, (long long)st.st_size);
+		}
+		send(this->cfd, buf, strlen(buf), 0);
+		free(namelist[i]);
+	}
+	memset(buf, 0, sizeof(buf));
+	// 发送剩余内容
+	sprintf(buf, "</table></body></html>");
+	send(this->cfd, buf, strlen(buf), 0);
+	free(namelist);
+	return 0;
 }

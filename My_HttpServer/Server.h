@@ -5,14 +5,16 @@
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <cstring>
+#include <utime.h>
+#include <time.h>
 #include <pthread.h>
 #include <fcntl.h>
 #include <map>
 #include <string>
 #include <sys/stat.h>
+#include <sys/dir.h>
 class Server
 {
-	friend void* acceptClient(void* arg);
 public:
 	Server(unsigned short port);
 
@@ -21,9 +23,13 @@ public:
 	// 设置监听的状态
 	int setListen();
 	// 断开连接
-	int disConnect(int cfd);
+	int disConnect();
 	// 解析请求行的数据
 	int parseRequestLine(const char* buf);
+
+	// 等待客户端连接
+	int acceptClient();
+
 	~Server();
 public:
 	//  接受发送消息  作为回调函数
@@ -41,15 +47,12 @@ public:
 	 int sendTrueMsg(int num);
 private:
 	unsigned short port;		// 端口号
-	std::map<pthread_t, int> m_list;	// 通讯的文件描述符
 	 int epfd;					// epoll树根
 	int lfd;					// 监听的文件描述
-
+	int cfd;					// 通讯的文件描述符
 	int status;					// 状态码
-	std::string descStatus;		// 对状态码的描述
-	char* fileType;				// 发送文件的类型
-	char* file;					// 请求的路径
+	 const char* descStatus;		// 对状态码的描述
+	 const char* fileType;				// 发送文件的类型
+	 char* file;					// 请求的路径
 	int fileSize;				// 发送文件的大小
 };
-// 处理客户端连接 
-void* acceptClient(void* arg);
